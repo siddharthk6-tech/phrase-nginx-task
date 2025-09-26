@@ -1,0 +1,75 @@
+---
+- name: Deploy ECS NGINX stack with Terraform + test endpoint + HA commands
+  hosts: localhost
+  gather_facts: no
+  vars:
+    tf_dir: "./terraform"   # path to ECS Terraform configs
+  tasks:
+
+    - name: Terraform init
+      community.general.terraform:
+        project_path: "{{ tf_dir }}"
+        state: present
+        force_init: yes
+        binary_path: /usr/local/bin/terraform
+
+    - name: Terraform plan
+      command: terraform plan -out=tfplan
+      args:
+        chdir: "{{ tf_dir }}"
+
+    - name: Terraform apply
+      command: terraform apply -auto-approve tfplan
+      args:
+        chdir: "{{ tf_dir }}"
+
+    - name: Get ALB DNS from Terraform output
+      command: terraform output -raw alb_dns_name
+      args:
+        chdir: "{{ tf_dir }}"
+      register: alb_dns
+
+    - name: Wait 7 minutes for ECS tasks + ALB to stabilize
+      ansible.builtin.pause:
+        minutes: 7
+
+    - name: Test /phrase endpoint
+      ansible.builtin.shell: "curl -i http://{{ alb_dns.stdout }}/phrase"
+      register: curl_output
+      retries: 10
+      delay: 15
+      until: curl_output.rc == 0
+
+    - name: Show test result
+      debug:
+        var: curl_output.stdout_lines
+
+    - name: Get ECS helper commands from Terraform outputs
+      command: terraform output -json
+      args:
+        chdir: "{{ tf_dir }}"
+      register: tf_outputs
+
+    - name: Prepare copy-paste commands as list
+      set_fact:
+        ecs_cmds:
+          - "# ALB DNS"
+          - "export ALB={{ tf_outputs.stdout | from_json | dict2items | selectattr('key','equalto','alb_dns_name') | map(attribute='value.value') | first }}"
+          - ""
+          - "# Test /phrase endpoint"
+          - "curl -i http://{{ tf_outputs.stdout | from_json | dict2items | selectattr('key','equalto','alb_dns_name') | map(attribute='value.value') | first }}/phrase"
+          - ""
+          - "# List running ECS tasks"
+          - "{{ tf_outputs.stdout | from_json | dict2items | selectattr('key','equalto','running_task_arns_command') | map(attribute='value.value') | first }}"
+          - ""
+          - "# Stop first two tasks (simulate failure)"
+          - "{{ tf_outputs.stdout | from_json | dict2items | selectattr('key','equalto','stop_first_task_command') | map(attribute='value.value') | first }}"
+          - "{{ tf_outputs.stdout | from_json | dict2items | selectattr('key','equalto','stop_second_task_command') | map(attribute='value.value') | first }}"
+          - ""
+          - "# Re-test endpoint"
+          - "curl http://{{ tf_outputs.stdout | from_json | dict2items | selectattr('key','equalto','test_phrase_after_stop_command') | map(attribute='value.value') | first }}"
+
+    - name: Show ready-to-copy ECS HA commands line by line
+      debug:
+        msg: "{{ item }}"
+      loop: "{{ ecs_cmds }}"

@@ -1,0 +1,67 @@
+---
+- name: Deploy ECS NGINX stack with Terraform + test endpoint + HA commands
+  hosts: localhost
+  gather_facts: no
+  vars:
+    tf_dir: "./terraform"   # path to ECS Terraform configs
+  tasks:
+
+    - name: Terraform init
+      community.general.terraform:
+        project_path: "{{ tf_dir }}"
+        state: present
+        force_init: yes
+        binary_path: /usr/local/bin/terraform
+
+    - name: Terraform plan
+      command: terraform plan -out=tfplan
+      args:
+        chdir: "{{ tf_dir }}"
+
+    - name: Terraform apply
+      command: terraform apply -auto-approve tfplan
+      args:
+        chdir: "{{ tf_dir }}"
+
+    - name: Get ALB DNS from Terraform output
+      command: terraform output -raw alb_dns_name
+      args:
+        chdir: "{{ tf_dir }}"
+      register: alb_dns
+
+    - name: Wait 7 minutes for ECS tasks + ALB to stabilize
+      ansible.builtin.pause:
+        minutes: 7
+
+    - name: Test /phrase endpoint
+      ansible.builtin.shell: "curl -i http://{{ alb_dns.stdout }}/phrase"
+      register: curl_output
+      retries: 10
+      delay: 15
+      until: curl_output.rc == 0
+
+    - name: Show test result
+      debug:
+        var: curl_output.stdout_lines
+
+    - name: Get ECS cluster name from Terraform output
+      command: terraform output -raw ecs_cluster_name
+      args:
+        chdir: "{{ tf_dir }}"
+      register: ecs_cluster
+
+    - name: Get ECS service name from Terraform output
+      command: terraform output -raw ecs_service_name
+      args:
+        chdir: "{{ tf_dir }}"
+      register: ecs_service
+
+    - name: Show ready-to-copy ECS HA commands (clean lines)
+      debug:
+        msg:
+          - "ALB DNS: {{ alb_dns.stdout }}"
+          - "Test /phrase endpoint: curl -i http://{{ alb_dns.stdout }}/phrase"
+          - "List running ECS tasks: aws ecs list-tasks --cluster {{ ecs_cluster.stdout }} --service-name {{ ecs_service.stdout }} --query 'taskArns' --output text"
+          - "Stop first ECS task: aws ecs stop-task --cluster {{ ecs_cluster.stdout }} --task $(aws ecs list-tasks --cluster {{ ecs_cluster.stdout }} --service-name {{ ecs_service.stdout }} --query 'taskArns[0]' --output text)"
+          - "Stop second ECS task: aws ecs stop-task --cluster {{ ecs_cluster.stdout }} --task $(aws ecs list-tasks --cluster {{ ecs_cluster.stdout }} --service-name {{ ecs_service.stdout }} --query 'taskArns[1]' --output text)"
+          - "Re-test /phrase endpoint: curl -i http://{{ alb_dns.stdout }}/phrase"
