@@ -1,208 +1,209 @@
 🚀 Phrase — NGINX IaC (EC2 + ECS)
 Overview
 
-This repository contains two ways to satisfy the take-home assignment: deploy three NGINX servers behind an ALB, each serving /phrase (200 OK), no direct instance access, and resilience if two instances fail.
+This repository contains two ways to satisfy the take-home assignment:
 
-EC2 approach: EC2 Auto Scaling Group (3 instances) running Docker-built NGINX via user-data.
+Deploy three NGINX servers behind an ALB.
 
-ECS approach: ECS Fargate service (3 tasks) with Docker image pushed to ECR automatically (via Terraform null_resource).
+Each serves /phrase (HTTP 200 OK).
+
+No direct instance access.
+
+Resilience if two instances fail.
+
+Approaches
+
+EC2 approach:
+
+EC2 Auto Scaling Group (3 instances) running Docker-built NGINX via user-data.
+
+Fully reproducible with Terraform.
+
+ECS approach:
+
+ECS Fargate service (3 tasks) with Docker image pushed to ECR automatically (via Terraform null_resource).
+
+Fully reproducible with Terraform.
+
+
+🚀 Quick Start — One-Line Deploy + Test
+
+EC2 Approach (Terraform + Ansible)
+cd nginx-iac-task-ec2
+ansible-playbook deploy-ec2.yml
+
+What happens automatically:
+Terraform init, plan, apply for EC2 + ALB + ASG.
+Waits 7 minutes for instances + ALB to stabilize.
+Tests /phrase endpoint (HTTP 200 OK).
+Prints ready-made commands to stop two EC2 instances and retest HA.
+Manual HA check (optional): just copy the commands from the playbook output.
+
+ECS Approach (Terraform + Ansible)
+cd nginx-iac-task-ecs
+ansible-playbook deploy-ecs.yml
+
+What happens automatically:
+Terraform init, plan, apply for ECS + ALB + ECR.
+Builds & pushes Docker image to ECR automatically.
+Waits 7 minutes for ECS tasks + ALB to stabilize.
+Tests /phrase endpoint (HTTP 200 OK).
+Prints ready-made commands to stop first two ECS tasks and retest HA.
+Manual HA check (optional): just copy the commands from the playbook output.
 
 Both approaches:
 
-Expose NGINX only via an ALB (internet → ALB → private targets).
+Expose NGINX only via an ALB (Internet → ALB → private targets).
+/phrase health check returns HTTP 200 OK.
+HA simulation possible by stopping two instances/tasks.
 
-Use /phrase health check (returns 200).
-
-Are reproducible with Terraform.
-
-Actual repository structure (reflects your workspace)
-phrase-nginx-task/                     <- repository root
-├── nginx-iac-task-ec2/                <- EC2 approach
+Repository Structure
+phrase-nginx-task/
+├── nginx-iac-task-ec2/
 │   ├── terraform/
 │   │   ├── provider.tf
 │   │   ├── vpc.tf
 │   │   ├── alb.tf
 │   │   ├── asg.tf
 │   │   ├── security_groups.tf
-│   │   ├── outputs.tf           # outputs: alb_dns_name, test commands
-│   │   └── nginx.sh             # user-data: installs docker, builds Dockerfile and runs container
-│   └── (optional docs / extras)
+│   │   ├── outputs.tf       # outputs: alb_dns_name, instance IDs, test commands
+│   │   └── nginx.sh          # user-data: installs docker, builds & runs container
+│   ├── deploy-ec2.yml        # Ansible playbook: terraform apply + endpoint test + HA commands
 │
-├── nginx-iac-task-ecs/                 <- ECS approach
+├── nginx-iac-task-ecs/
 │   ├── terraform/
 │   │   ├── provider.tf
 │   │   ├── vpc.tf
 │   │   ├── alb.tf
 │   │   ├── ecr.tf
 │   │   ├── ecs.tf
-│   │   ├── docker_build_push.tf  # null_resource to build & push Docker image
-│   │   └── outputs.tf            # outputs: alb_dns_name, test commands, ecs commands
-│   ├── Dockerfile                 # Dockerfile used to create the nginx image
-│   ├── default.conf               # nginx config with /phrase endpoint
-│   └── index.html                 # simple index page
+│   │   ├── docker_build_push.tf # null_resource: build & push Docker image
+│   │   └── outputs.tf          # outputs: alb_dns_name, test & ECS HA commands
+│   ├── Dockerfile               # Docker image for NGINX
+│   ├── default.conf             # NGINX config with /phrase endpoint
+│   ├── index.html               # simple index page
+│   ├── deploy-ecs.yml           # Ansible playbook: terraform apply + endpoint test + HA commands
 │
 ├── .gitignore
-└── README.md                       <- this file
+└── README.md
 
-
-Notes
-
-For EC2 we use nginx.sh (user-data) which builds the image on startup on each EC2 instance.
-
-For ECS we keep Dockerfile, default.conf, and index.html in the ECS folder (next to the terraform/ folder). Terraform’s null_resource will build & push the image to ECR during terraform apply.
-
-Quick prerequisites
-
-AWS account and credentials configured (aws configure)
-
+Prerequisites
+AWS account & credentials (aws configure)
 Terraform >= 1.2.5
+Docker installed (required for ECS build/push via null_resource)
 
-Docker installed (only required locally if you want Terraform to build/push for ECS using the null_resource — Docker must be present where you run terraform apply)
 
-Optional: jq for some CLI helpers
-
-How to run — EC2 approach
-
+EC2 Approach
+Using Terraform only
 cd nginx-iac-task-ec2/terraform
-
-Initialize & apply:
-
 terraform init
 terraform apply -auto-approve
 
-
-After apply completes, get the ALB DNS from Terraform outputs:
-
-terraform output -raw alb_dns_name
-
-
-Or set a variable:
-
+Get ALB DNS and test:
 alb=$(terraform output -raw alb_dns_name)
-curl -i http://$alb/phrase
+curl -i http://$alb/phrase   # expect HTTP 200 OK
 
+Using Ansible (automated deploy + test + HA commands)
+cd nginx-iac-task-ec2
+ansible-playbook deploy-ec2.yml
 
-Expect: HTTP/1.1 200 OK and body OK.
+What it does:
+Runs Terraform init, plan, apply
+Waits 7 minutes for instances + ALB to stabilize
+Tests /phrase endpoint (HTTP 200 OK)
+Displays ready-made commands to stop two EC2 instances and retest
 
-To simulate HA (stop 2 instances):
-
-Get instance IDs (example):
-
+Manual HA Testing (if preferred)
+# Get instance IDs from ASG
 aws autoscaling describe-auto-scaling-groups \
   --query "AutoScalingGroups[?AutoScalingGroupName=='nginx-asg'].Instances[*].InstanceId" --output text
 
-
-Stop two:
-
+# Stop two instances
 aws ec2 stop-instances --instance-ids <id1> <id2>
-curl -i http://$alb/phrase  # should still return 200 OK from remaining instance
 
+# Test endpoint (should still return 200 OK)
+curl -i http://$alb/phrase
 
-Start them back:
-
+# Start instances back
 aws ec2 start-instances --instance-ids <id1> <id2>
 
-
-EC2 implementation details
-
-nginx.sh (user-data) lives at: nginx-iac-task-ec2/terraform/nginx.sh.
-
-The script installs Docker, creates Dockerfile + index.html on the instance, builds image and runs container bound to port 80.
-
-Instances live in private subnets in the final correct config (ALB in public subnets). If you earlier used public subnets, ensure you switch to private subnets and NAT for instance outbound if needed.
-
-How to run — ECS approach (fully automated build & deploy)
-
+ECS Approach
+Using Terraform only
 cd nginx-iac-task-ecs/terraform
-
-Ensure Docker is installed on the machine where you run terraform apply (Terraform will build & push the image via null_resource).
-
-Initialize & apply:
-
 terraform init
 terraform apply -auto-approve
 
 
-Terraform outputs will include:
+Docker image is built & pushed to ECR automatically.
+ECS Service runs 3 tasks behind the ALB.
 
-alb_dns_name (ALB host)
-
-Ready-to-copy commands such as curl http://<alb>/phrase
-
-ECS helper commands (list tasks, stop first/second task)
-
-Example quick test (use the output or substitute actual DNS):
-
-alb=$(terraform output -raw alb_dns_name)
-curl -i http://$alb/phrase    # should return 200 OK
+Using Ansible (automated deploy + test + HA commands)
+cd nginx-iac-task-ecs
+ansible-playbook deploy-ecs.yml
 
 
-ECS automatic build & push
+What it does:
+Runs Terraform init, plan, apply
+Waits 7 minutes for ECS tasks + ALB to stabilize
+Tests /phrase endpoint (HTTP 200 OK)
+Prints ready-made commands to stop first two ECS tasks and retest
 
-Dockerfile, default.conf, index.html are at nginx-iac-task-ecs/ root (not inside terraform/).
+Manual HA Testing (if preferred)
+ALB=$(terraform output -raw alb_dns_name)
+CLUSTER=$(terraform output -raw ecs_cluster_name)
+SERVICE=$(terraform output -raw ecs_service_name)
 
-Terraform docker_build_push.tf contains a null_resource that runs docker build, tag, docker push to the ECR repo created by Terraform.
-
-The ECS Task Definition uses the pushed ECR image URL.
-
-aws_ecs_service is configured with desired_count = 3 so ECS keeps 3 tasks running.
-
-How to test HA on ECS (copy-paste ready)
-
-After terraform apply, Terraform will print helper outputs (examples below are copy/paste-ready — replace with the actual DNS or use terraform output):
-
-# Replace with terraform output if you prefer:
-ALB=nginx-alb-xxxxxxxx.eu-west-1.elb.amazonaws.com
-
-# check endpoint
+# Check endpoint
 curl -i http://$ALB/phrase
 
-# list running task ARNs
-aws ecs list-tasks --cluster nginx-cluster --service-name nginx-service --query 'taskArns' --output text
+# List tasks
+aws ecs list-tasks --cluster $CLUSTER --service-name $SERVICE --query 'taskArns' --output text
 
-# stop the first running task
-aws ecs stop-task --cluster nginx-cluster --task $(aws ecs list-tasks --cluster nginx-cluster --service-name nginx-service --query 'taskArns[0]' --output text)
+# Stop first task
+aws ecs stop-task --cluster $CLUSTER --task $(aws ecs list-tasks --cluster $CLUSTER --service-name $SERVICE --query 'taskArns[0]' --output text)
 
-# stop the second running task
-aws ecs stop-task --cluster nginx-cluster --task $(aws ecs list-tasks --cluster nginx-cluster --service-name nginx-service --query 'taskArns[1]' --output text)
+# Stop second task
+aws ecs stop-task --cluster $CLUSTER --task $(aws ecs list-tasks --cluster $CLUSTER --service-name $SERVICE --query 'taskArns[1]' --output text)
 
-# re-test endpoint (service should still return 200 OK)
+# Test endpoint again (should still return 200 OK)
 curl -i http://$ALB/phrase
 
 
-ECS will replace stopped tasks to maintain desired_count=3. During replacement the single remaining healthy task should serve traffic — ALB health checks ensure only healthy tasks receive traffic.
+ECS will automatically replace stopped tasks to maintain desired_count=3.
 
-Outputs returned by Terraform (examples)
+Implementation Notes
 
-Use terraform output in each module to get these. Typical outputs provided:
+EC2: nginx.sh builds container at instance boot. Instances in private subnets, ALB in public subnets.
+ECS: Docker image built & pushed via Terraform null_resource. ECS Task Definition uses pushed image.
 
-alb_dns_name — ALB DNS for testing.
+/phrase endpoint returns 200 OK in both approaches.
+HA testing possible by stopping 2 instances/tasks.
 
-test_phrase_command — ready curl command to test /phrase.
+Outputs Returned by Terraform
+EC2:
 
-(ECS) running_task_arns_command, stop_first_task_command, stop_second_task_command — ready CLI commands to simulate failures.
+alb_dns_name — ALB DNS
+asg_instance_ids — instance IDs
+assignment_status — ready commands for testing / HA simulation
 
-Example:
+ECS:
+alb_dns_name — ALB DNS
+ecs_cluster_name — cluster name
+ecs_service_name — service name
+test_phrase_command — curl endpoint command
+running_task_arns_command — list task ARNs
+stop_first_task_command / stop_second_task_command — HA simulation
 
-terraform output -raw test_phrase_command
-# prints: curl http://nginx-alb-xxxxx.eu-west-1.elb.amazonaws.com/phrase
+Summary
 
-Important implementation notes
+This repository contains two reproducible Terraform + Ansible implementations to deploy NGINX behind an ALB:
+EC2 + ASG: 3 instances, user-data builds Docker container.
+ECS Fargate: 3 tasks, automated image build & push to ECR.
 
-EC2: user-data builds the container on instance boot, so instances do not need an externally built image.
+Both approaches:
 
-ECS: Terraform builds and pushes the Docker image to ECR via a null_resource (this requires Docker and AWS CLI locally where you run terraform apply).
+Expose /phrase endpoint (HTTP 200 OK).
 
-HTTPS: not configured by default (no public domain). To enable HTTPS later you can:
+Support HA testing (service remains available if two instances/tasks stop).
 
-Create an ACM certificate and provide acm_certificate_arn as a variable.
-
-Add an HTTPS listener in alb.tf that references the ACM cert.
-
-Optionally use Route53 to issue and validate the certificate automatically.
-
-State management: store Terraform state in S3 + DynamoDB locking for team usage (recommended).
-
-
-SUMMARY- 
-This repository contains two reproducible Terraform implementations to deploy three NGINX instances behind an ALB: nginx-iac-task-ec2/ (EC2 + ASG) and nginx-iac-task-ecs/ (ECS Fargate with automated image build + ECR). Each approach configures /phrase healthcheck (returns 200 OK) and supports the requirement that service remains available even when two instances/tasks are stopped. See instructions above to deploy and test.
+Provide automated or manual commands to verify functionality.
