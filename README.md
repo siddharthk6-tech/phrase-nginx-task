@@ -26,7 +26,8 @@ Copy code
 cd nginx-iac-task-ecs
 ansible-playbook deploy-ecs.yml
 
-Summary
+### Summary
+
 EC2 Approach → Launches EC2 instances inside an ASG, installs NGINX, and attaches them behind an ALB.
 
 ECS Approach → Deploys an ECS cluster and service (running NGINX containers) behind an ALB.
