@@ -1,5 +1,11 @@
 # Phrase NGINX Task – IaC Deployment
 
+## 🚀 Getting Started
+
+This project is available on GitHub. To get started, clone the repository:
+"git clone https://github.com/siddharthk6-tech/phrase-nginx-task.git"
+
+
 This repository contains the **Phrase NGINX deployment task**, implemented in two different ways:
 
 1. **EC2-based deployment** → using Auto Scaling Group (ASG) and an Application Load Balancer (ALB).
