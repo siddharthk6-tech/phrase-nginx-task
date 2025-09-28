@@ -38,3 +38,7 @@ output "test_phrase_after_stop_command" {
   value       = "curl http://${aws_lb.alb.dns_name}/phrase"
 }
 
+# Ready-to-use HTTPS curl command using your domain
+#output "test_phrase_https" {
+#  value = "curl https://yourdomain.com/phrase" 
+#}

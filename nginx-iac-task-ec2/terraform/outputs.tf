@@ -50,3 +50,7 @@ aws ec2 start-instances --instance-ids ${join(" ", slice(data.aws_instances.asg_
 EOT
 }
 
+# Ready-to-use HTTPS curl command using your domain
+#output "test_phrase_https" {
+#  value = "curl https://yourdomain.com/phrase" 
+#}

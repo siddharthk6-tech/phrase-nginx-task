@@ -26,6 +26,18 @@ Copy code
 cd nginx-iac-task-ecs
 ansible-playbook deploy-ecs.yml
 
+
+### HTTPS Support
+
+Both EC2 and ECS approaches support HTTPS using an ACM certificate.
+
+Steps to enable HTTPS:
+
+1.Update variables.tf with your ACM certificate ARN.
+2.Uncomment the HTTPS listener in alb.tf (and optionally comment out the HTTP listener if you want all traffic to use HTTPS).
+Optional: Enable HTTP → HTTPS redirection in alb.tf if you want all HTTP requests automatically redirected to HTTPS.
+Once enabled, the ALB will serve traffic securely, and the /phrase endpoint can be tested over HTTPS.
+
 ### Summary
 
 EC2 Approach → Launches EC2 instances inside an ASG, installs NGINX, and attaches them behind an ALB.
@@ -33,3 +45,4 @@ EC2 Approach → Launches EC2 instances inside an ASG, installs NGINX, and attac
 ECS Approach → Deploys an ECS cluster and service (running NGINX containers) behind an ALB.
 
 Both playbooks will output ready-to-run HA test commands (e.g., stopping EC2 instances or ECS tasks to verify resilience).
+
