@@ -1,9 +1,9 @@
 ---
-- name: Deploy ECS NGINX stack with Terraform + test endpoint + HA commands
+- name: Deploy EC2 NGINX stack with Terraform + test endpoint + HA commands
   hosts: localhost
   gather_facts: no
   vars:
-    tf_dir: "./terraform"   # path to ECS Terraform configs
+    tf_dir: "./terraform"   # path to EC2 Terraform configs
   tasks:
 
     - name: Terraform init
@@ -29,7 +29,17 @@
         chdir: "{{ tf_dir }}"
       register: alb_dns
 
-    - name: Wait 7 minutes for ECS tasks + ALB to stabilize
+    - name: Get ASG instance IDs from Terraform output (list)
+      command: terraform output -json asg_instance_ids
+      args:
+        chdir: "{{ tf_dir }}"
+      register: asg_instance_ids_json
+
+    - name: Parse ASG instance IDs into list
+      set_fact:
+        asg_instance_ids: "{{ asg_instance_ids_json.stdout | from_json }}"
+
+    - name: Wait 7 minutes for EC2 instances + ALB to stabilize
       ansible.builtin.pause:
         minutes: 7
 
@@ -44,24 +54,24 @@
       debug:
         var: curl_output.stdout_lines
 
-    - name: Get ECS cluster name from Terraform output
-      command: terraform output -raw ecs_cluster_name
-      args:
-        chdir: "{{ tf_dir }}"
-      register: ecs_cluster
-
-    - name: Get ECS service name from Terraform output
-      command: terraform output -raw ecs_service_name
-      args:
-        chdir: "{{ tf_dir }}"
-      register: ecs_service
-
-    - name: Show ready-to-copy ECS HA commands (clean lines)
+    - name: Show HA testing commands
       debug:
-        msg:
+        msg: 
+          - "✅ NGINX ALB setup complete as per assignment requirements."
+          - ""
           - "ALB DNS: {{ alb_dns.stdout }}"
-          - "Test /phrase endpoint: curl -i http://{{ alb_dns.stdout }}/phrase"
-          - "List running ECS tasks: aws ecs list-tasks --cluster {{ ecs_cluster.stdout }} --service-name {{ ecs_service.stdout }} --query 'taskArns' --output text"
-          - "Stop first ECS task: aws ecs stop-task --cluster {{ ecs_cluster.stdout }} --task $(aws ecs list-tasks --cluster {{ ecs_cluster.stdout }} --service-name {{ ecs_service.stdout }} --query 'taskArns[0]' --output text)"
-          - "Stop second ECS task: aws ecs stop-task --cluster {{ ecs_cluster.stdout }} --task $(aws ecs list-tasks --cluster {{ ecs_cluster.stdout }} --service-name {{ ecs_service.stdout }} --query 'taskArns[1]' --output text)"
-          - "Re-test /phrase endpoint: curl -i http://{{ alb_dns.stdout }}/phrase"
+          - "EC2 instances: {{ asg_instance_ids }}"
+          - ""
+          - "### Test functionality:"
+          - ""
+          - "1. Test /phrase endpoint:"
+          - "   curl -i http://{{ alb_dns.stdout }}/phrase"
+          - ""
+          - "2. Stop any two instances (simulate failure):"
+          - "   aws ec2 stop-instances --instance-ids {{ asg_instance_ids[0] }} {{ asg_instance_ids[1] }}"
+          - ""
+          - "3. Test again:"
+          - "   curl -i http://{{ alb_dns.stdout }}/phrase"
+          - ""
+          - "4. Restart the stopped instances:"
+          - "   aws ec2 start-instances --instance-ids {{ asg_instance_ids[0] }} {{ asg_instance_ids[1] }}"
